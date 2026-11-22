@@ -32,12 +32,16 @@ export const config = {
     appId: process.env.META_APP_ID ?? '',
     appSecret: process.env.META_APP_SECRET ?? '',
     apiVersion: process.env.META_API_VERSION ?? 'v26.0',
-    scopes: process.env.META_SCOPES ?? 'ads_read',
+    // Same permissions venxr_v3 asks for. Ignored when META_CONFIG_ID is set.
+    scopes:
+      process.env.META_SCOPES ||
+      'public_profile,ads_read,business_management,pages_show_list,pages_read_engagement,read_insights',
     /** Facebook Login for Business configuration ID. When set, it's used instead of `scopes`. */
     configId: process.env.META_CONFIG_ID ?? '',
     /**
-     * Host of the OAuth dialog. "business.facebook.com" shows Meta's business login screen
-     * (Continue with Facebook / Log in with a Managed Meta Account); "www.facebook.com" shows the plain Facebook login.
+     * Host of the OAuth dialog. business.facebook.com shows "Log in to Business Tools from Meta", which
+     * offers both personal Facebook and Managed Meta Account sign-in. www.facebook.com (venxr_v3's choice)
+     * only offers personal Facebook login.
      */
     loginHost: process.env.META_LOGIN_HOST || 'business.facebook.com',
   },

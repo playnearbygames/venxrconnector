@@ -17,27 +17,57 @@ export function metaAuthUrl(state: string): string {
   if (config.meta.configId) u.searchParams.set('config_id', config.meta.configId);
   else u.searchParams.set('scope', config.meta.scopes);
   u.searchParams.set('response_type', 'code');
+  // Re-asks for any permission the person declined last time (same as venxr_v3).
+  u.searchParams.set('auth_type', 'rerequest');
   return u.toString();
 }
 
-/** Exchanges the OAuth code, then upgrades to a long-lived (~60 day) user token. */
-export async function metaExchangeCode(code: string): Promise<{ accessToken: string; expiresAt: Date | null }> {
+/**
+ * Exchanges the OAuth code, upgrades to a long-lived (~60 day) user token, then asks Meta (debug_token)
+ * which permissions were actually granted and when the token expires. Same flow as venxr_v3.
+ */
+export async function metaExchangeCode(
+  code: string,
+): Promise<{ accessToken: string; expiresAt: Date | null; scopes: string[] }> {
   const short = await graphFetch(`${GRAPH}/${v()}/oauth/access_token`, {
     client_id: config.meta.appId,
     client_secret: config.meta.appSecret,
     redirect_uri: metaRedirectUri(),
     code,
   });
-  const long = await graphFetch(`${GRAPH}/${v()}/oauth/access_token`, {
-    grant_type: 'fb_exchange_token',
-    client_id: config.meta.appId,
-    client_secret: config.meta.appSecret,
-    fb_exchange_token: short.access_token,
-  });
+  if (!short.access_token) throw new ProviderError("Meta didn't return an access token.", false);
+  // Personal-user tokens are short-lived and get swapped for a ~60-day one. System-user tokens
+  // (Facebook Login for Business configs with "System-user access token") are already long-lived
+  // and Meta may refuse the swap, so a failed swap keeps the original token.
+  let long: any = {};
+  try {
+    long = await graphFetch(`${GRAPH}/${v()}/oauth/access_token`, {
+      grant_type: 'fb_exchange_token',
+      client_id: config.meta.appId,
+      client_secret: config.meta.appSecret,
+      fb_exchange_token: short.access_token,
+    });
+  } catch (err) {
+    console.warn('[meta] long-lived token swap skipped:', (err as Error).message);
+  }
+  const accessToken: string = long.access_token || short.access_token;
+  const dbg =
+    (
+      await graphFetch(`${GRAPH}/${v()}/debug_token`, {
+        input_token: accessToken,
+        access_token: `${config.meta.appId}|${config.meta.appSecret}`,
+      })
+    ).data ?? {};
+  const scopes: string[] = dbg.scopes ?? [];
+  if (!scopes.includes('ads_read') && !scopes.includes('ads_management')) {
+    throw new ProviderError("Meta didn't grant ads_read. Connect again and allow access to your ad accounts.", false);
+  }
+  const exp = Number(dbg.expires_at) || 0;
   const expiresIn = Number(long.expires_in);
   return {
-    accessToken: long.access_token,
-    expiresAt: expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000) : null,
+    accessToken,
+    expiresAt: exp > 0 ? new Date(exp * 1000) : expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000) : null,
+    scopes,
   };
 }
 

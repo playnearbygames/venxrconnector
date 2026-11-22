@@ -44,7 +44,7 @@ export function oauthRouter() {
     const code = finish('meta', req, res);
     if (!code) return;
     try {
-      const { accessToken, expiresAt } = await metaExchangeCode(code);
+      const { accessToken, expiresAt, scopes } = await metaExchangeCode(code);
       const [me, adAccounts] = await Promise.all([
         metaGetMe(accessToken),
         metaListAdAccounts(accessToken).catch(() => []), // non-fatal: the tool fetches live anyway
@@ -56,7 +56,7 @@ export function oauthRouter() {
         externalAccountName: me.name,
         accessToken,
         expiresAt,
-        scopes: config.meta.scopes,
+        scopes: scopes.join(','),
         metadata: { ad_accounts: adAccounts, accounts_synced_at: new Date().toISOString() },
       });
       back(
